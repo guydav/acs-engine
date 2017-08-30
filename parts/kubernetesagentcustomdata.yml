@@ -24,8 +24,8 @@ write_files:
       "live-restore": true,
       "log-driver": "json-file",
       "log-opts":  {
-         "max-size": "50m",
-         "max-file": "5"
+         "max-size": "200m",
+         "max-file": "25"
       }
     }
 
@@ -100,17 +100,22 @@ write_files:
   permissions: "0644"
   owner: "root"
   content: |
-    KUBELET_CLUSTER_DNS={{WrapAsVariable "kubeDnsServiceIP"}}
+    KUBELET_CLUSTER_DNS={{WrapAsVariable "kubeDNSServiceIP"}}
     KUBELET_API_SERVERS=https://{{WrapAsVariable "kubernetesAPIServerIP"}}:443
     KUBELET_IMAGE={{WrapAsVariable "kubernetesHyperkubeSpec"}}
     KUBELET_NETWORK_PLUGIN=kubenet
+    KUBELET_MAX_PODS=110
     DOCKER_OPTS=
     CUSTOM_CMD=/bin/true
     KUBELET_REGISTER_SCHEDULABLE=true
     KUBELET_NODE_LABELS={{ GetKubernetesLabels . }}
     KUBELET_POD_INFRA_CONTAINER_IMAGE={{WrapAsVariable "kubernetesPodInfraContainerSpec"}}
+    KUBELET_NODE_STATUS_UPDATE_FREQUENCY={{WrapAsVariable "kubernetesNodeStatusUpdateFrequency"}}
+    KUBE_CTRL_MGR_NODE_MONITOR_GRACE_PERIOD={{WrapAsVariable "kubernetesCtrlMgrNodeMonitorGracePeriod"}}
+    KUBE_CTRL_MGR_POD_EVICTION_TIMEOUT={{WrapAsVariable "kubernetesCtrlMgrPodEvictionTimeout"}}
+    KUBE_CTRL_MGR_ROUTE_RECONCILIATION_PERIOD={{WrapAsVariable "kubernetesCtrlMgrRouteReconciliationPeriod"}}
 {{if IsKubernetesVersionGe "1.6.0"}}
-     KUBELET_FEATURE_GATES=--feature-gates=Accelerators=true
+    KUBELET_FEATURE_GATES=--feature-gates=Accelerators=true
 {{end}}
 
 - path: "/etc/systemd/system/kubelet.service"
@@ -125,6 +130,12 @@ write_files:
   owner: "root"
   content: |
     #!/bin/bash
+
+{{if IsVNETIntegrated}}
+    # SNAT outbound traffic from pods to destinations outside of VNET.
+    iptables -t nat -A POSTROUTING -m iprange ! --dst-range 168.63.129.16 -m addrtype ! --dst-type local ! -d {{WrapAsVariable "vnetCidr"}} -j MASQUERADE
+{{end}}
+
     exit 0
 
 - path: "/opt/azure/containers/provision.sh"
@@ -155,4 +166,4 @@ runcmd:
 - sudo update-initramfs -u
 - curl -L -sf https://raw.githubusercontent.com/wbuchwalter/acs-engine/k8s-gpu/parts/install-nvidia-drivers.sh | sudo sh
 - sudo systemctl restart kubelet.service
-- touch /opt/azure/containers/runcmd.complete
+- mkdir -p /opt/azure/containers && touch /opt/azure/containers/runcmd.complete
